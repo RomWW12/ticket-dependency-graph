@@ -44,14 +44,14 @@ window.graphHandler = new Vue({
       this.currentParent = '';
     },
 
-    addOrUpdateTicket(ticketId, ticketName) {
+    addOrUpdateTicket(ticketId, ticketName, estimate) {
       const currentNode = window.myDiagram.model.findNodeDataForKey(ticketId);
       if (currentNode == null) {
         window.myDiagram.startTransaction('Add ticket');
         const newTicket = {
           key: ticketId,
-          name: getNameWithoutComplexity(ticketName),
-          complexity: getComplexityFromName(ticketName),
+          name: ticketName,
+          complexity: estimate,
         };
         window.myDiagram.model.addNodeData(newTicket);
         window.myDiagram.commitTransaction('Add ticket');

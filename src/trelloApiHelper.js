@@ -1,7 +1,7 @@
 var jQuery = require('jquery');
 var opts = {
   version: 1,
-  apiEndpoint: 'https://api.trello.com',
+  apiEndpoint: 'https://api.clubhouse.io/',
   authEndpoint: 'https://trello.com',
   intentEndpoint: 'https://trello.com',
   key: '9685b92ee42080b94102b49fe50d2bb1',
@@ -49,7 +49,7 @@ wrapper = function(window, jQuery, opts) {
     (authEndpoint = opts.authEndpoint),
     (intentEndpoint = opts.intentEndpoint),
     (version = opts.version);
-  baseURL = apiEndpoint + '/' + version + '/';
+  baseURL = apiEndpoint;
   location = window.location;
   Trello = {
     version: function() {
@@ -67,6 +67,7 @@ wrapper = function(window, jQuery, opts) {
     setToken: function(newToken) {
       token = newToken;
     },
+    getAjax: $.get,
     rest: function() {
       var args, error, method, params, path, ref, success;
       (method = arguments[0]),

@@ -37,19 +37,23 @@ window.trelloHandler = new Vue({
     },
 
     authorize() {
-      window.Trello.deauthorize(); // Fix this
-      window.Trello.authorize({
-        type: 'popup',
-        name: 'Ticket Dependency Graph',
-        scope: {
-          read: 'true',
-          write: 'false',
-        },
-        expiration: 'never',
-        success: this.authSuccessHandler,
-        error() {
-          console.warn('Failed authentication'); // eslint-disable-line no-console
-        },
+      window.token = '';
+      window.clubhouseColumn = 0;
+
+      window.Trello.getAjax(`https://api.clubhouse.io/api/v2/search/stories`, {
+        token: window.token,
+        query: `state:${window.clubhouseColumn}`,
+        page_size: 25,
+      }).then(response => {
+        const vm = this;
+        const data = response.data.filter(card => !card.archived);
+        vm.cards = data;
+        vm.deleteUselessCards();
+        vm.addOrUpdateCards();
+        vm.calculateDependenciesAsPromises().then(linkDataArray => {
+          window.myDiagram.model.linkDataArray = linkDataArray;
+          vm.loading = false;
+        });
       });
     },
 
@@ -66,23 +70,6 @@ window.trelloHandler = new Vue({
         Vue.nextTick(vm.retrieveLastBoardAndListChoice);
       });
     },
-
-    refresh() {
-      const vm = this;
-      this.loading = true;
-      return window.Trello.get(`/lists/${this.selectedList}/cards`).then(
-        data => {
-          vm.cards = data;
-          vm.deleteUselessCards();
-          vm.addOrUpdateCards();
-          vm.calculateDependenciesAsPromises().then(linkDataArray => {
-            window.myDiagram.model.linkDataArray = linkDataArray;
-            vm.loading = false;
-          });
-        }
-      );
-    },
-
     retrieveLastBoardAndListChoice() {
       const boardChoiceId = window.localStorage.getItem(lastBoardChoice);
       const listChoiceId = window.localStorage.getItem(lastListChoice);
@@ -116,7 +103,11 @@ window.trelloHandler = new Vue({
     addOrUpdateCards() {
       for (let i = 0; i < this.cards.length; i += 1) {
         const card = this.cards[i];
-        window.graphHandler.addOrUpdateTicket(card.idShort, card.name);
+        window.graphHandler.addOrUpdateTicket(
+          card.id,
+          card.name,
+          card.estimate
+        );
       }
     },
 
@@ -138,26 +129,23 @@ window.trelloHandler = new Vue({
       const vm = this;
       const linkDataArray = [];
       const promises = [];
-      for (let iCard = 0; iCard < vm.cards.length; iCard += 1) {
+      vm.cards.forEach(card => {
         promises.push(
           new Promise(resolve => {
-            vm.getOrCreateDependencyChecklist(vm.cards[iCard]).then(
-              checklist => {
-                const ticketIds = vm.getDependentTicketsFromChecklist(
-                  checklist
-                );
-                for (let j = 0; j < ticketIds.length; j += 1) {
+            vm.getCompleteStoryObject(card).then(story => {
+              story.story_links.forEach(sLink => {
+                if (!linkDataArray.find(l => l.from === sLink.object_id)) {
                   linkDataArray.push({
-                    from: ticketIds[j].ticketId,
-                    to: vm.getTicketIdFromIdCard(checklist.idCard),
+                    from: sLink.subject_id,
+                    to: sLink.object_id,
                   });
                 }
-                resolve();
-              }
-            );
+              });
+              resolve();
+            });
           })
         );
-      }
+      });
       return new Promise(resolve => {
         Promise.all(promises).then(() => {
           resolve(linkDataArray);
@@ -230,13 +218,11 @@ window.trelloHandler = new Vue({
         return false;
       }
       return this.getOrCreateDependencyChecklist(childCard).then(checklist => {
-        const ticketIds = vm.getDependentTicketsFromChecklist(checklist);
+        const ticketIds = vm.getDependentTicketsFromStory(checklist);
         for (let i = 0; i < ticketIds.length; i += 1) {
           if (ticketIds[i].ticketId === parentId) {
             window.Trello.delete(
-              `/checklists/${checklist.id}/checkItems/${
-                ticketIds[i].checkItemId
-              }`
+              `/checklists/${checklist.id}/checkItems/${ticketIds[i].checkItemId}`
             );
             console.log('Dependency deleted'); // eslint-disable-line no-console
             return;
@@ -245,13 +231,13 @@ window.trelloHandler = new Vue({
       });
     },
 
-    getDependentTicketsFromChecklist(checklist) {
+    getDependentTicketsFromStory(story) {
       const ticketIds = [];
-      if (checklist.checkItems == null) {
+      if (story.checkItems == null) {
         return ticketIds;
       }
-      for (let i = 0; i < checklist.checkItems.length; i += 1) {
-        const checkItem = checklist.checkItems[i];
+      for (let i = 0; i < story.checkItems.length; i += 1) {
+        const checkItem = story.checkItems[i];
         ticketIds.push({
           checkItemId: checkItem.id,
           ticketId: this.getTicketIdFromCheckItemName(checkItem.name),
@@ -267,23 +253,13 @@ window.trelloHandler = new Vue({
       return parseInt(checkItemName.split('/')[5].split('-')[0], 10);
     },
 
-    getOrCreateDependencyChecklist(card) {
-      return new Promise(resolve => {
-        window.Trello.get(`/cards/${card.id}/checklists`).then(checklists => {
-          for (let k = 0; k < checklists.length; k += 1) {
-            if (checklists[k].name === 'Dependencies') {
-              return resolve(checklists[k]);
-            }
-          }
-          const checklist = {
-            name: 'Dependencies',
-            idCard: card.id,
-          };
-          return window.Trello.post('/checklists/', checklist).then(data => {
-            resolve(data);
-          });
-        });
-      });
+    getCompleteStoryObject(card) {
+      return window.Trello.getAjax(
+        `https://api.clubhouse.io/api/v2/stories/${card.id}`,
+        {
+          token: window.token,
+        }
+      );
     },
   },
 });
